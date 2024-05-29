@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photo Album Viewer</title>
+  <style>
+    /* CSS for the photo modal */
+    .modal {
+      display: none; /* Hidden by default */
+      position: fixed; /* Stay in place */
+      z-index: 1; /* Sit on top */
+      padding-top: 100px; /* Location of the box */
+      left: 0;
+      top: 0;
+      width: 100%; /* Full width */
+      height: 100%; /* Full height */
+      overflow: auto; /* Enable scroll if needed */
+      background-color: rgb(0,0,0); /* Fallback color */
+      background-color: rgba(0,0,0,0.9); /* Black w/ opacity */
+    }
+
+    .modal-content {
+      margin: auto;
+      display: block;
+      width: 80%;
+      max-width: 700px;
+    }
+
+    .close {
+      position: absolute;
+      top: 15px;
+      right: 35px;
+      color: #f1f1f1;
+      font-size: 40px;
+      font-weight: bold;
+      transition: 0.3s;
+    }
+
+    .close:hover,
+    .close:focus {
+      color: #bbb;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    /* Add a zoom animation */
+    .modal-content {
+      animation-name: zoom;
+      animation-duration: 0.6s;
+    }
+
+    @keyframes zoom {
+      from {transform: scale(0)}
+      to {transform: scale(1)}
+    }
+
+    /* Checkbox and buttons styling */
+    .photo-checkbox {
+      margin-left: 10px;
+      cursor: pointer;
+      transform: scale(1.5);
+    }
+
+    button {
+      cursor: pointer;
+      padding: 10px 20px;
+      font-size: 16px;
+      margin: 5px;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      border-radius: 5px;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .photo-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .photo-container img {
+      margin-right: 10px;
+      border-radius: 5px;
+      box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .actions {
+      text-align: center; /* Center align buttons */
+      margin-top: 20px; /* Add space at the top */
+    }
+
+    /* General styles */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background-color: #f8f9fa;
+    }
+
+    header, footer {
+      padding: 10px;
+      text-align: center;
+      background-color: #343a40;
+      color: white;
+    }
+
+    main {
+      flex: 1;
+      padding: 20px;
+      display: flex; /* Align content vertically */
+      flex-direction: column; /* Stack children vertically */
+      align-items: center; /* Center align children */
+    }
+
+    .album-viewer {
+      max-width: 800px;
+      width: 100%;
+    }
+
+    h1 {
+      margin-bottom: 20px; /* Add space below heading */
+    }
+
+    .user-email {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-size: 14px;
+    }
+
+  </style>
+  <script src="https://sdk.amazonaws.com/js/aws-sdk-2.713.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js@5.1.0/dist/amazon-cognito-identity.min.js"></script>
+  <script>
+    // **DO THIS**:
+    //   Replace BUCKET_NAME with the bucket name.
+    var albumBucketName = "sateliteraspberry";
+
+    // **DO THIS**:
+    //   Replace this block of code with the sample code located at:
+    //   Cognito -- Manage Identity Pools -- [identity_pool_name] -- Sample Code -- JavaScript
+    //
+    // Initialize the Amazon Cognito credentials provider
+    AWS.config.region = "ap-northeast-2"; // Region
+    AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+      IdentityPoolId: "ap-northeast-2:83cf4857-c63c-4d27-aa03-0a16069ab294",
+    });
+
+    // Create a new service object
+    var s3 = new AWS.S3({
+      apiVersion: '2006-03-01',
+      params: { Bucket: albumBucketName },
+    });
+
+    // A utility function to create HTML.
+    function getHtml(template) {
+      return template.join("\n");
+    }
+
+    // List the photo albums that exist in the bucket.
+    function listAlbums() {
+      s3.listObjects({ Delimiter: "/" }, function (err, data) {
+        if (err) {
+          return alert("There was an error listing your albums: " + err.message);
+        } else {
+          var albums = data.CommonPrefixes.map(function (commonPrefix) {
+            var prefix = commonPrefix.Prefix;
+            var albumName = decodeURIComponent(prefix.replace("/", ""));
+            return getHtml([
+              "<li>",
+              '<button style="margin:5px;" onclick="viewAlbum(\'' +
+                albumName +
+                "')\">",
+              albumName,
+              "</button>",
+              "</li>",
+            ]);
+          });
+          var message = albums.length
+            ? getHtml(["<p>Click on an album name to view it.</p>"])
+            : "<p>You do not have any albums. Please Create album.";
+          var htmlTemplate = [
+            "<h2>Albums</h2>",
+            message,
+            "<ul>",
+            getHtml(albums),
+            "</ul>",
+          ];
+          document.getElementById("viewer").innerHTML = getHtml(htmlTemplate);
+        }
+      });
+    }
+
+    // Show the photos that exist in an album.
+    function viewAlbum(albumName) {
+      var albumPhotosKey = encodeURIComponent(albumName) + "/";
+      s3.listObjects({ Prefix: albumPhotosKey }, function (err, data) {
+        if (err) {
+          return alert("There was an error viewing your album: " + err.message);
+        }
+        // 'this' references the AWS.Request instance that represents the response
+        var href = this.request.httpRequest.endpoint.href;
+        var bucketUrl = href + albumBucketName + "/";
+
+        var photos = data.Contents.map(function (photo) {
+          var photoKey = photo.Key;
+          var photoUrl = bucketUrl + encodeURIComponent(photoKey);
+          return getHtml([
+            "<div class='photo-container'>",
+            '<img style="width:150px;height:150px;cursor:pointer;" src="' + photoUrl + '" onclick="openModal(\'' + photoUrl + '\')"/>',
+            '<input type="checkbox" class="photo-checkbox" data-url="' + photoUrl + '"/>',
+            '<span>' + photoKey.replace(albumPhotosKey, "") + '</span>',
+            "</div>",
+          ]);
+        });
+        var message = photos.length
+          ? "<p>The following photos are present.</p>"
+          : "<p>There are no photos in this album.</p>";
+          var htmlTemplate = [
+            '<div class="actions">',
+            '<button onclick="listAlbums()" style="margin-bottom: 10px;">Back To Albums</button>',
+            '<button onclick="downloadSelectedPhotos()" style="margin-left: 10px;">Download Selected Photos</button>',
+            '</div>',
+            '<h2 style="margin-bottom: 10px;">Album: ' + albumName + '</h2>',
+            message,
+            '<div>',
+            getHtml(photos),
+            '<div>',
+            '<button onclick="listAlbums()">Back To Albums</button>',
+            '</div>',
+          ];
+        document.getElementById("viewer").innerHTML = getHtml(htmlTemplate);
+      });
+    }
+
+    // Download photo function
+    function downloadPhoto(photoUrl) {
+      var a = document.createElement('a');
+      a.href = photoUrl;
+      a.download = photoUrl.split('/').pop();
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // Function to download selected photos
+    function downloadSelectedPhotos() {
+      var checkboxes = document.querySelectorAll('.photo-checkbox:checked');
+      checkboxes.forEach(function(checkbox) {
+        downloadPhoto(checkbox.getAttribute('data-url'));
+      });
+    }
+
+    // Open modal function
+    function openModal(photoUrl) {
+      var modal = document.getElementById("photoModal");
+      var modalImg = document.getElementById("modalImage");
+      modal.style.display = "block";
+      modalImg.src = photoUrl;
+    }
+
+    // Close modal function
+    function closeModal() {
+      var modal = document.getElementById("photoModal");
+      modal.style.display = "none";
+    }
+
+    // Initialize the modal
+    function initModal() {
+      var modalHtml = document.createElement('div');
+      modalHtml.id = 'photoModal';
+      modalHtml.className = 'modal';
+      
+      var modalContent = document.createElement('img');
+      modalContent.className = 'modal-content';
+      modalContent.id = 'modalImage';
+      
+      var closeModalBtn = document.createElement('span');
+      closeModalBtn.className = 'close';
+      closeModalBtn.innerHTML = '&times;';
+      closeModalBtn.onclick = closeModal;
+      
+      modalHtml.appendChild(closeModalBtn);
+      modalHtml.appendChild(modalContent);
+      
+      document.body.appendChild(modalHtml);
+    }
+
+    // Initialize the application
+    function initApp() {
+      initModal();
+      listAlbums();
+      displayUserEmail();
+    }
+
+    // Display logged in user's email
+    function displayUserEmail() {
+      var poolData = {
+        UserPoolId: 'ap-northeast-2_QjyCuOwqV', // Your user pool id here
+        ClientId: '1oeei4p7httfq8o363lls9rcnb' // Your client id here
+      };
+      var userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+      var cognitoUser = userPool.getCurrentUser();
+
+      if (cognitoUser != null) {
+        cognitoUser.getSession(function(err, session) {
+          if (err) {
+            alert(err.message || JSON.stringify(err));
+            return;
+          }
+          cognitoUser.getUserAttributes(function(err, attributes) {
+            if (err) {
+              alert(err.message || JSON.stringify(err));
+              return;
+            }
+            var email = attributes.find(attr => attr.Name === 'email').Value;
+            var emailElement = document.createElement('div');
+            emailElement.className = 'user-email';
+            emailElement.textContent = email;
+            document.body.appendChild(emailElement);
+          });
+        });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Photo Album Viewer</h1>
+  </header>
+  <main>
+    <table id="viewer" class="album-viewer"></table>
+    <div class="actions"></div>
+  </main>
+  <footer>
+    <p>&copy; 2024 Photo Album Viewer</p>
+  </footer>
+</body>
+</html>
